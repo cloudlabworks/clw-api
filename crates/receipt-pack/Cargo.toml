@@ -1,0 +1,21 @@
+[package]
+name = "receipt-pack"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+description = "Token-capped context packs with provenance, kinds and score breakdowns. No model calls."
+license = "MIT"
+repository = "https://github.com/cloudlabworks/clw-api"
+readme = "README.md"
+keywords = ["context", "provenance", "bm25", "memory", "receipts"]
+categories = ["command-line-utilities", "text-processing"]
+publish = false
+
+[[bin]]
+name = "receipt-pack"
+path = "src/bin/receipt-pack.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = { version = "0.10", default-features = false }

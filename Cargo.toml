@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/receipt-check"]
+members = ["crates/receipt-check", "crates/receipt-pack"]
 resolver = "2"
 
 [profile.release]
