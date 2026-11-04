@@ -1,0 +1,21 @@
+{
+  "specificationVersion": "0.23",
+  "apis": [
+    {
+      "name": "CloudLab Works API",
+      "description": "Free, unauthenticated HTTP API. NC2 permissions: the IAM permission lists Nutanix Cloud Clusters onboarding needs on AWS, Azure and Google Cloud, extracted from public Nutanix documentation, each with its source page, doc date and fetch date. Receipt check: deterministic checks (Rust compiled to WebAssembly, no model calls, nothing stored) of a completion claim against its evidence.",
+      "image": "https://cloudlabworks.dev/media/cloudlabworks-emblem-512.png",
+      "humanURL": "https://api.cloudlabworks.dev/",
+      "baseURL": "https://api.cloudlabworks.dev",
+      "version": "0.1.0",
+      "created": "2026-11-03",
+      "modified": "2026-11-03",
+      "tags": ["NC2", "Nutanix", "IAM", "Multicloud", "Verification", "Agent Reliability", "WebAssembly", "Open Source"],
+      "properties": [
+        { "type": "OpenAPI", "url": "https://api.cloudlabworks.dev/openapi.json" },
+        { "type": "Documentation", "url": "https://github.com/cloudlabworks/clw-api#readme" },
+        { "type": "License", "url": "https://github.com/cloudlabworks/clw-api/blob/main/LICENSE" }
+      ]
+    }
+  ]
+}

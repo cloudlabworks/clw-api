@@ -1,0 +1,831 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CloudLab Works API",
+    "version": "0.1.0",
+    "summary": "Public, read-mostly HTTP API from CloudLab Works.",
+    "description": "Two small, free, unauthenticated services:\n\n- **NC2 permissions**: the IAM permission lists that Nutanix Cloud Clusters (NC2)\n  onboarding needs on AWS, Azure and Google Cloud, extracted from the public Nutanix\n  documentation. Every response carries the source page URL, the page's last-updated\n  date and the date the list was fetched.\n- **Receipt check**: deterministic checks of a \"this work is done\" claim against the\n  evidence offered for it. No model calls, nothing stored. A `supported` verdict means\n  the evidence passed every deterministic check; it is a floor, not proof.\n\nThe API stores nothing, needs no credentials and sets no cookies. CORS is open for\nGET and POST.\n",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "contact": {
+      "name": "CloudLab Works",
+      "url": "https://cloudlabworks.dev"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "The host serving this document. Locally that is http://localhost:8787 (`wrangler dev --local`); the public hostname is not decided yet."
+    }
+  ],
+  "security": [],
+  "tags": [
+    {
+      "name": "meta",
+      "description": "Service health and this specification."
+    },
+    {
+      "name": "nc2",
+      "description": "NC2 IAM permission lists from public Nutanix documentation."
+    },
+    {
+      "name": "receipts",
+      "description": "Deterministic checks of completion claims against evidence."
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "operationId": "getHealth",
+        "summary": "Health check",
+        "description": "Returns 200 when the Worker is up. Not cached.",
+        "responses": {
+          "200": {
+            "description": "The service is up.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlNoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                },
+                "example": {
+                  "status": "ok",
+                  "service": "clw-api",
+                  "version": "0.1.0"
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "operationId": "getOpenApi",
+        "summary": "This OpenAPI document as JSON",
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlPublic"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/v1/nc2/permissions": {
+      "get": {
+        "tags": [
+          "nc2"
+        ],
+        "operationId": "listNc2Permissions",
+        "summary": "Index of clouds and roles",
+        "description": "Lists every cloud and role with its source, list sizes and a link to the full list.",
+        "responses": {
+          "200": {
+            "description": "The index.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlPublic"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionsIndex"
+                },
+                "example": {
+                  "origin": "Public Nutanix NC2 documentation, extracted by nc2-iam-preflight",
+                  "clouds": [
+                    {
+                      "cloud": "gcp",
+                      "roles": [
+                        {
+                          "role": "nodes-sa",
+                          "actor": "service-account:cluster-nodes",
+                          "href": "/v1/nc2/permissions/gcp/nodes-sa",
+                          "source": {
+                            "url": "https://portal.nutanix.com/page/documents/details?targetId=Nutanix-Cloud-Clusters-Google-Cloud:nc2-clusters-google-cloud-appendix-role-permissions-c.html",
+                            "doc_last_updated": "2026-10-08",
+                            "fetched": "2026-10-09T20:38:51.395Z"
+                          },
+                          "lists": {
+                            "permissions": 23,
+                            "optional": 0
+                          },
+                          "count": 23
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/v1/nc2/permissions/{cloud}/{role}": {
+      "get": {
+        "tags": [
+          "nc2"
+        ],
+        "operationId": "getNc2Permissions",
+        "summary": "Permission lists for one cloud and role",
+        "parameters": [
+          {
+            "name": "cloud",
+            "in": "path",
+            "required": true,
+            "description": "Cloud provider.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "aws",
+                "azure",
+                "gcp"
+              ]
+            },
+            "example": "gcp"
+          },
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "description": "Role within the cloud: `onboarding-user` (aws), `nc2-app` (azure), `console-sa` or `nodes-sa` (gcp).",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "onboarding-user",
+                "nc2-app",
+                "console-sa",
+                "nodes-sa"
+              ]
+            },
+            "example": "nodes-sa"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every list in the source file, with its provenance.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlPublic"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleDoc"
+                },
+                "example": {
+                  "cloud": "gcp",
+                  "role": "nodes-sa",
+                  "actor": "service-account:cluster-nodes",
+                  "origin": "nutanix",
+                  "source": {
+                    "url": "https://portal.nutanix.com/page/documents/details?targetId=Nutanix-Cloud-Clusters-Google-Cloud:nc2-clusters-google-cloud-appendix-role-permissions-c.html",
+                    "doc_last_updated": "2026-10-08",
+                    "fetched": "2026-10-09T20:38:51.395Z"
+                  },
+                  "lists": {
+                    "permissions": [
+                      "compute.forwardingRules.create",
+                      "compute.forwardingRules.delete"
+                    ],
+                    "optional": []
+                  },
+                  "count": 23,
+                  "notes": {
+                    "doc_stated_count": 23
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown cloud, or unknown role for that cloud.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlNoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unknownCloud": {
+                    "summary": "Unknown cloud",
+                    "value": {
+                      "error": "unknown cloud: oci",
+                      "code": "not_found",
+                      "known": [
+                        "aws",
+                        "azure",
+                        "gcp"
+                      ]
+                    }
+                  },
+                  "unknownRole": {
+                    "summary": "Unknown role",
+                    "value": {
+                      "error": "unknown role for gcp: admin",
+                      "code": "not_found",
+                      "known": [
+                        "console-sa",
+                        "nodes-sa"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    },
+    "/v1/receipts/check": {
+      "post": {
+        "tags": [
+          "receipts"
+        ],
+        "operationId": "checkReceipt",
+        "summary": "Check a completion claim against its evidence",
+        "description": "Runs the receipt-check rules (Rust, compiled to WebAssembly) on the claim and evidence.\nNothing is stored and no model is called.\n\nFlags and verdict:\n\n| flags raised | verdict |\n|---|---|\n| none | `supported` |\n| `no_artifact` or `claim_terms_missing` | `partial` |\n| both of them | `unsupported` |\n| `no_evidence` | `unsupported` |\n\nLimits: claim 600 characters (after trimming), evidence 4000 characters,\nrequest body 65536 bytes.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              },
+              "examples": {
+                "supported": {
+                  "summary": "Evidence with artifacts and the claim's terms",
+                  "value": {
+                    "claim": "Deployed the worker to staging",
+                    "evidence": "$ wrangler deploy --env staging\nUploaded clw-api worker\nDeployed to https://staging.example.net"
+                  }
+                },
+                "noArtifact": {
+                  "summary": "Evidence that only restates the claim",
+                  "value": {
+                    "claim": "Updated the readme",
+                    "evidence": "The readme was updated."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The verdict, the flags raised and what was found.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlNoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckReport"
+                },
+                "examples": {
+                  "supported": {
+                    "summary": "No flags",
+                    "value": {
+                      "verdict": "supported",
+                      "flags": [],
+                      "artifacts": [
+                        "url",
+                        "command"
+                      ],
+                      "claim_terms": [
+                        "deployed",
+                        "staging",
+                        "worker"
+                      ],
+                      "missing_terms": [],
+                      "model_called": false,
+                      "checker": "receipt-check 0.1.0"
+                    }
+                  },
+                  "partial": {
+                    "summary": "No concrete artifact",
+                    "value": {
+                      "verdict": "partial",
+                      "flags": [
+                        {
+                          "code": "no_artifact",
+                          "message": "evidence contains no concrete artifact (hash, URL, path, id, timestamp, command output, number)"
+                        }
+                      ],
+                      "artifacts": [],
+                      "claim_terms": [
+                        "readme",
+                        "updated"
+                      ],
+                      "missing_terms": [],
+                      "model_called": false,
+                      "checker": "receipt-check 0.1.0"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Body is not JSON, not an object, has non-string fields, or the claim is empty.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlNoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalidJson": {
+                    "summary": "Not JSON",
+                    "value": {
+                      "error": "body must be JSON",
+                      "code": "invalid_json"
+                    }
+                  },
+                  "claimRequired": {
+                    "summary": "Empty claim",
+                    "value": {
+                      "error": "claim is required",
+                      "code": "claim_required",
+                      "limits": {
+                        "claim": 600,
+                        "evidence": 4000
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "description": "Claim, evidence or request body over the limits.",
+            "headers": {
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControlNoStore"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "limits: claim 600 chars, evidence 4000 chars",
+                  "code": "too_large",
+                  "limits": {
+                    "claim": 600,
+                    "evidence": 4000
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The checker failed unexpectedly.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": "receipt check failed",
+                  "code": "internal"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "headers": {
+      "CacheControlPublic": {
+        "description": "Static data; cacheable for an hour.",
+        "schema": {
+          "type": "string",
+          "const": "public, max-age=3600"
+        }
+      },
+      "CacheControlNoStore": {
+        "description": "Not cacheable.",
+        "schema": {
+          "type": "string",
+          "const": "no-store"
+        }
+      }
+    },
+    "responses": {
+      "MethodNotAllowed": {
+        "description": "The path exists but not for this method. The `Allow` header lists the methods.",
+        "headers": {
+          "Allow": {
+            "description": "Methods this path accepts.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "GET, OPTIONS"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": "method DELETE not allowed; use GET",
+              "code": "method_not_allowed"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          },
+          "service": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "description": "Where a permission list came from.",
+        "required": [
+          "url",
+          "doc_last_updated",
+          "fetched"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Public Nutanix documentation page the list was extracted from."
+          },
+          "doc_last_updated": {
+            "type": "string",
+            "format": "date",
+            "description": "Last-updated date shown on that page."
+          },
+          "fetched": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the page was fetched."
+          }
+        }
+      },
+      "RoleSummary": {
+        "type": "object",
+        "required": [
+          "role",
+          "actor",
+          "href",
+          "source",
+          "lists",
+          "count"
+        ],
+        "properties": {
+          "role": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string",
+            "description": "The principal the list applies to, as named in the source file."
+          },
+          "href": {
+            "type": "string",
+            "description": "Path of the full list."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "lists": {
+            "type": "object",
+            "description": "Size of each list, by list name.",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Total entries across all lists."
+          }
+        }
+      },
+      "PermissionsIndex": {
+        "type": "object",
+        "required": [
+          "clouds",
+          "origin"
+        ],
+        "properties": {
+          "origin": {
+            "type": "string"
+          },
+          "clouds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "cloud",
+                "roles"
+              ],
+              "properties": {
+                "cloud": {
+                  "type": "string"
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RoleSummary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "RoleDoc": {
+        "type": "object",
+        "required": [
+          "cloud",
+          "role",
+          "actor",
+          "origin",
+          "source",
+          "lists",
+          "count",
+          "notes"
+        ],
+        "properties": {
+          "cloud": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "description": "Who publishes the source document."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "lists": {
+            "type": "object",
+            "description": "Every list in the source file, by name. GCP roles have `permissions` and `optional`; the Azure custom role has `actions`, `notActions`, `dataActions` and `notDataActions`; the AWS onboarding user has `managed_policies`, `roles_created` and `permissions`.",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Total entries across all lists."
+          },
+          "notes": {
+            "type": "object",
+            "description": "Other scalar fields from the source file, such as `statement` or `doc_stated_count`.",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number"
+              ]
+            }
+          }
+        }
+      },
+      "CheckRequest": {
+        "type": "object",
+        "required": [
+          "claim"
+        ],
+        "properties": {
+          "claim": {
+            "type": "string",
+            "description": "The completion claim. Trimmed; must be 1 to 600 characters.",
+            "maxLength": 600
+          },
+          "evidence": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The evidence for the claim, up to 4000 characters. Missing or null counts as empty.",
+            "maxLength": 4000
+          }
+        }
+      },
+      "Flag": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "no_evidence",
+              "no_artifact",
+              "claim_terms_missing"
+            ],
+            "description": "- `no_evidence`: evidence is empty or whitespace.\n- `no_artifact`: no hash, URL, path, id, timestamp, command output or number.\n- `claim_terms_missing`: over 60% of the claim's terms never appear in the evidence.\n"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CheckReport": {
+        "type": "object",
+        "required": [
+          "verdict",
+          "flags",
+          "artifacts",
+          "claim_terms",
+          "missing_terms",
+          "model_called",
+          "checker"
+        ],
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "partial",
+              "unsupported"
+            ]
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Flag"
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "description": "Kinds of concrete artifact found in the evidence, in this fixed order.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "hash",
+                "url",
+                "path",
+                "id",
+                "timestamp",
+                "command",
+                "number"
+              ]
+            }
+          },
+          "claim_terms": {
+            "type": "array",
+            "description": "Distinct claim terms, lowercased, stop words removed, sorted.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missing_terms": {
+            "type": "array",
+            "description": "Claim terms whose stem never appears in the evidence, sorted.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model_called": {
+            "type": "boolean",
+            "const": false
+          },
+          "checker": {
+            "type": "string",
+            "description": "Checker name and version."
+          }
+        }
+      },
+      "Limits": {
+        "type": "object",
+        "required": [
+          "claim",
+          "evidence"
+        ],
+        "properties": {
+          "claim": {
+            "type": "integer"
+          },
+          "evidence": {
+            "type": "integer"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error",
+          "code"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable message."
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "not_found",
+              "method_not_allowed",
+              "invalid_json",
+              "invalid_body",
+              "claim_required",
+              "too_large",
+              "internal"
+            ]
+          },
+          "known": {
+            "type": "array",
+            "description": "On 404 for a cloud or role, the valid values.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/Limits"
+          }
+        }
+      }
+    }
+  }
+}

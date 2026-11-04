@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Browse NC2 IAM permission lists from public Nutanix docs and try the receipt checker. Free, no login." />
+    <meta name="color-scheme" content="light dark" />
+    <title>CloudLab Works API Explorer</title>
+    <link rel="icon" href="data:," />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <p class="brand"><a href="https://cloudlabworks.dev">CloudLab Works</a> <span aria-hidden="true">/</span> API Explorer</p>
+      <nav aria-label="Pages">
+        <ul>
+          <li><a href="#/permissions" data-route="permissions">NC2 permissions</a></li>
+          <li><a href="#/receipts" data-route="receipts">Receipt check</a></li>
+        </ul>
+      </nav>
+    </header>
+    <main id="main" tabindex="-1">
+      <noscript><p>This explorer needs JavaScript. The API itself works without it: see <a href="/openapi.json">/openapi.json</a>.</p></noscript>
+    </main>
+    <footer class="site-footer">
+      <p>
+        Free, no login, nothing stored. API description:
+        <a href="/openapi.json">/openapi.json</a>. Permission lists come from public Nutanix documentation;
+        check the linked source page before relying on them.
+      </p>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "cloud": "aws",
+  "actor": "onboarding-user",
+  "origin": "nutanix",
+  "url": "https://portal.nutanix.com/page/documents/details?targetId=Nutanix-Clusters-AWS:aws-clusters-aws-requirements-c.html",
+  "fetched": "2026-10-09T20:38:57.225Z",
+  "doc_last_updated": "2026-10-08",
+  "statement": "sign in with a user role that has the IAMFullAccess and AWSCloudFormationFullAccess permissions; must have CreateRole access",
+  "managed_policies": [
+    "IAMFullAccess",
+    "AWSCloudFormationFullAccess"
+  ],
+  "roles_created": [
+    "Nutanix-Clusters-High-Nc2-Cluster-Role-Prod",
+    "Nutanix-Clusters-High-Nc2-Orchestrator-Role-Prod"
+  ],
+  "permissions": []
+}

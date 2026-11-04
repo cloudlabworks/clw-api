@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "clw-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "send_metrics": false,
+  // No routes or custom domain yet: the public hostname is an open decision.
+  "workers_dev": false,
+  "assets": {
+    "directory": "../app/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "none"
+  }
+}

@@ -1,0 +1,28 @@
+[package]
+name = "receipt-check"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+description = "Deterministic checks of a completion claim against its evidence. No model calls."
+license = "MIT"
+repository = "https://github.com/cloudlabworks/clw-api"
+readme = "README.md"
+keywords = ["receipts", "verification", "evidence", "wasm"]
+categories = ["command-line-utilities", "text-processing", "wasm"]
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "receipt-check"
+path = "src/bin/receipt-check.rs"
+
+[dependencies]
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.130"
+

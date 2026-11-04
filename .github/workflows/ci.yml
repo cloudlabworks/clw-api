@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Rust, Wasm, Worker, app, OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            app/package-lock.json
+            worker/package-lock.json
+
+      # Rust comes from the rustup preinstalled on GitHub-hosted runners; no third-party action.
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --target wasm32-unknown-unknown
+          rustup default stable
+      - name: cargo fmt
+        run: cargo fmt --check
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --locked
+
+      - name: Install wasm-bindgen-cli (same version as the crate)
+        run: |
+          version="$(sed -n 's/^wasm-bindgen = "=\(.*\)"/\1/p' crates/receipt-check/Cargo.toml)"
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Wasm build
+        run: ./scripts/build-wasm.sh
+
+      - name: App install
+        working-directory: app
+        run: npm ci
+      - name: App tsc --noEmit
+        working-directory: app
+        run: npm run typecheck
+      - name: App vitest
+        working-directory: app
+        run: npm test
+      - name: App production build
+        working-directory: app
+        run: npm run build
+
+      - name: Worker install
+        working-directory: worker
+        run: npm ci
+      - name: Served OpenAPI JSON matches openapi.yaml
+        working-directory: worker
+        run: npm run check:openapi
+      - name: Worker tsc --noEmit
+        working-directory: worker
+        run: npm run typecheck
+      - name: Worker vitest
+        working-directory: worker
+        run: npm test
+      - name: OpenAPI lint
+        working-directory: worker
+        run: npm run lint:openapi

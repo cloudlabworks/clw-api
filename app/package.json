@@ -1,0 +1,23 @@
+{
+  "name": "clw-api-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CloudLab Works API Explorer: browse NC2 permission lists and try the receipt checker.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
+  }
+}
