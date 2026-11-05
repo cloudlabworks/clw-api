@@ -4,11 +4,31 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-10-01",
   "send_metrics": false,
-  // No routes or custom domain yet: the public hostname is an open decision.
+  // Served only on the Custom Domain; Cloudflare creates the DNS record and certificate.
   "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "api.cloudlabworks.dev",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "../app/dist",
     "binding": "ASSETS",
     "not_found_handling": "none"
-  }
+  },
+  // Per-IP rate limits (Workers Rate Limiting binding). The numbers must match
+  // RATE_LIMITS in src/app.ts; a test checks. namespace_id is unique on the account.
+  "ratelimits": [
+    {
+      "name": "RL_READ",
+      "namespace_id": "4201",
+      "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "RL_CHECK",
+      "namespace_id": "4202",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ]
 }

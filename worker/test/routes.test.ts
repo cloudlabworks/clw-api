@@ -6,7 +6,8 @@ import azureRaw from "../data/permissions/azure-nc2-app.json";
 import gcpConsoleRaw from "../data/permissions/gcp-console-sa.json";
 import gcpNodesRaw from "../data/permissions/gcp-nodes-sa.json";
 import worker from "../src/index";
-import { createApp, MAX_BODY_BYTES, type Env } from "../src/app";
+import wranglerRaw from "../wrangler.jsonc?raw";
+import { createApp, MAX_BODY_BYTES, RATE_LIMITS, type Env, type RateLimiter } from "../src/app";
 
 type Json = Record<string, any>;
 
@@ -311,5 +312,132 @@ describe("static app and unknown paths", () => {
     const res = await get("/v2/nothing");
     expect(res.status).toBe(404);
     expect(await json(res)).toEqual({ error: "no route for GET /v2/nothing", code: "not_found" });
+  });
+});
+
+describe("request body cap", () => {
+  it("413s a chunked body over the byte limit without a Content-Length", async () => {
+    const chunk = new TextEncoder().encode("y".repeat(16 * 1024));
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > MAX_BODY_BYTES * 4) return controller.close();
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const res = await worker.request(
+      "/v1/receipts/check",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: stream, duplex: "half" } as RequestInit,
+      env,
+    );
+    expect(res.status).toBe(413);
+    expect((await json(res)).code).toBe("too_large");
+    expect(sent).toBeLessThan(MAX_BODY_BYTES * 2);
+  });
+});
+
+/** A stub of the Workers Rate Limiting binding: allows the first `budget` calls per key. */
+function stubLimiter(budget: number) {
+  const seen = new Map<string, number>();
+  const keys: string[] = [];
+  const limiter: RateLimiter = {
+    limit: async ({ key }) => {
+      keys.push(key);
+      const n = (seen.get(key) ?? 0) + 1;
+      seen.set(key, n);
+      return { success: n <= budget };
+    },
+  };
+  return { limiter, keys };
+}
+
+describe("rate limits", () => {
+  function limitedEnv(readBudget: number, checkBudget: number) {
+    const read = stubLimiter(readBudget);
+    const check = stubLimiter(checkBudget);
+    return { env: { ...env, RL_READ: read.limiter, RL_CHECK: check.limiter } as Env, read, check };
+  }
+  const ip = (addr: string) => ({ "CF-Connecting-IP": addr });
+
+  it("429s over budget with Retry-After, CORS and a JSON error", async () => {
+    const { env: e } = limitedEnv(1, 1);
+    expect((await worker.request("/healthz", { headers: ip("203.0.113.7") }, e)).status).toBe(200);
+    const res = await worker.request("/healthz", { headers: { ...ip("203.0.113.7"), Origin: "https://example.org" } }, e);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe(String(RATE_LIMITS.read.period));
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Access-Control-Expose-Headers")).toContain("Retry-After");
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(await json(res)).toEqual({
+      error: `rate limit: ${RATE_LIMITS.read.limit} requests per ${RATE_LIMITS.read.period} s per client IP; retry after ${RATE_LIMITS.read.period} s`,
+      code: "rate_limited",
+      limit: RATE_LIMITS.read.limit,
+      period: RATE_LIMITS.read.period,
+    });
+  });
+
+  it("keys on the client IP, so one client's budget does not block another", async () => {
+    const { env: e, read } = limitedEnv(1, 1);
+    expect((await worker.request("/v1/nc2/permissions", { headers: ip("203.0.113.7") }, e)).status).toBe(200);
+    expect((await worker.request("/v1/nc2/permissions", { headers: ip("203.0.113.7") }, e)).status).toBe(429);
+    expect((await worker.request("/v1/nc2/permissions", { headers: ip("198.51.100.9") }, e)).status).toBe(200);
+    expect(read.keys).toEqual(["203.0.113.7", "203.0.113.7", "198.51.100.9"]);
+  });
+
+  it("counts receipt checks against the check budget and reads against the read budget", async () => {
+    const { env: e, read, check } = limitedEnv(100, 1);
+    const post = () =>
+      worker.request("/v1/receipts/check", { method: "POST", headers: { ...ip("203.0.113.7"), "Content-Type": "application/json" }, body: '{"claim":"x","evidence":"y"}' }, e);
+    expect((await post()).status).toBe(200);
+    const limited = await post();
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe(String(RATE_LIMITS.check.period));
+    expect((await json(limited)).limit).toBe(RATE_LIMITS.check.limit);
+    expect((await worker.request("/healthz", { headers: ip("203.0.113.7") }, e)).status).toBe(200);
+    expect(check.keys).toHaveLength(2);
+    expect(read.keys).toHaveLength(1);
+  });
+
+  it("does not count CORS preflights", async () => {
+    const { env: e, read, check } = limitedEnv(0, 0);
+    const res = await worker.request(
+      "/v1/receipts/check",
+      { method: "OPTIONS", headers: { ...ip("203.0.113.7"), Origin: "https://example.org", "Access-Control-Request-Method": "POST" } },
+      e,
+    );
+    expect(res.status).toBe(204);
+    expect(read.keys).toHaveLength(0);
+    expect(check.keys).toHaveLength(0);
+  });
+
+  it("passes requests when the binding is absent or errors", async () => {
+    expect((await get("/healthz")).status).toBe(200);
+    const broken: RateLimiter = { limit: async () => { throw new Error("binding down"); } };
+    const res = await worker.request("/healthz", {}, { ...env, RL_READ: broken } as Env);
+    expect(res.status).toBe(200);
+  });
+
+  it("matches the ratelimits bindings in wrangler.jsonc", () => {
+    const config = JSON.parse(wranglerRaw.replace(/^\s*\/\/.*$/gm, "")) as Json;
+    const byName = Object.fromEntries((config.ratelimits as Json[]).map((r) => [r.name, r]));
+    for (const cls of Object.values(RATE_LIMITS)) {
+      expect(byName[cls.binding]?.simple).toEqual({ limit: cls.limit, period: cls.period });
+    }
+    const ids = (config.ratelimits as Json[]).map((r) => r.namespace_id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(config.routes).toEqual([{ pattern: "api.cloudlabworks.dev", custom_domain: true }]);
+    expect(config.name).toBe("clw-api");
+  });
+
+  it("documents 429 with Retry-After on every operation", () => {
+    for (const [path, ops] of Object.entries(spec.paths as Record<string, Json>)) {
+      for (const [method, op] of Object.entries(ops)) {
+        expect(op.responses["429"], `${method.toUpperCase()} ${path}`).toEqual({ $ref: "#/components/responses/RateLimited" });
+      }
+    }
+    expect(spec.components.responses.RateLimited.headers["Retry-After"]).toBeDefined();
+    expect(spec.components.schemas.Error.properties.code.enum).toContain("rate_limited");
   });
 });

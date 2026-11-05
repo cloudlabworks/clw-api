@@ -10,8 +10,24 @@ export const VERSION = "0.1.0";
  * limits (600 chars claim, 4000 chars evidence) are far below this even with JSON escapes. */
 export const MAX_BODY_BYTES = 64 * 1024;
 
+/** Per-IP request budgets. They must match the `ratelimits` bindings in wrangler.jsonc
+ * (a test checks). Cloudflare counts per location and approximately, so these are abuse
+ * brakes, not quotas. The binding's period is the only window we know, so Retry-After is it. */
+export const RATE_LIMITS = {
+  read: { binding: "RL_READ", limit: 60, period: 60 },
+  check: { binding: "RL_CHECK", limit: 20, period: 60 },
+} as const;
+
+/** The Workers Rate Limiting binding: `limit()` resolves `{ success: false }` once a key
+ * is over budget. Declared here so tests can pass a stub. */
+export interface RateLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   ASSETS: Fetcher;
+  RL_READ?: RateLimiter;
+  RL_CHECK?: RateLimiter;
 }
 
 /** The Wasm `check(claim, evidence)` export: returns a JSON report or a JSON input error. */
@@ -27,11 +43,38 @@ type ErrorCode =
   | "invalid_body"
   | "claim_required"
   | "too_large"
+  | "rate_limited"
   | "internal";
 
-function error(c: Context, status: 400 | 404 | 405 | 413 | 500, code: ErrorCode, message: string, extra: Record<string, unknown> = {}) {
+function error(c: Context, status: 400 | 404 | 405 | 413 | 429 | 500, code: ErrorCode, message: string, extra: Record<string, unknown> = {}) {
   c.header("Cache-Control", CACHE_NONE);
   return c.json({ error: message, code, ...extra }, status);
+}
+
+/** Reads at most `max` bytes of the body. Returns null as soon as the stream goes over, so a
+ * large chunked upload is never buffered whole. */
+async function readCapped(req: Request, max: number): Promise<string | null> {
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const buf = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(buf);
 }
 
 function methodNotAllowed(allow: string) {
@@ -44,18 +87,48 @@ function methodNotAllowed(allow: string) {
 export function createApp(check: Checker) {
   const app = new Hono<{ Bindings: Env }>();
 
+  // CORS is open on purpose: the API is public, unauthenticated and sets no cookies, so no
+  // origin gains anything a plain curl does not. Credentials stay off. The cors middleware
+  // answers preflights itself, before the rate limiter below, so OPTIONS is never counted.
   app.use(
     "*",
     cors({
       origin: "*",
       allowMethods: ["GET", "POST", "OPTIONS"],
       allowHeaders: ["Content-Type"],
+      exposeHeaders: ["Retry-After"],
       maxAge: 86400,
     }),
   );
   app.use("*", async (c, next) => {
     await next();
     c.header("X-Content-Type-Options", "nosniff");
+  });
+
+  // Per-IP rate limits: receipt checks run the Wasm checker, so they get the smaller budget;
+  // everything else the Worker answers shares the read budget. Keyed on the client IP that
+  // Cloudflare sets (the API has no accounts to key on). Without the binding (local tools)
+  // or if the binding errors, requests pass: the limiter is a brake, not a gate.
+  app.use("*", async (c, next) => {
+    const cls = c.req.method === "POST" && c.req.path === "/v1/receipts/check" ? RATE_LIMITS.check : RATE_LIMITS.read;
+    const limiter = c.env?.[cls.binding];
+    if (limiter) {
+      const key = c.req.header("CF-Connecting-IP") ?? "unknown";
+      let allowed = true;
+      try {
+        allowed = (await limiter.limit({ key })).success;
+      } catch {
+        allowed = true;
+      }
+      if (!allowed) {
+        c.header("Retry-After", String(cls.period));
+        return error(c, 429, "rate_limited", `rate limit: ${cls.limit} requests per ${cls.period} s per client IP; retry after ${cls.period} s`, {
+          limit: cls.limit,
+          period: cls.period,
+        });
+      }
+    }
+    await next();
   });
 
   app.get("/healthz", (c) => {
@@ -99,8 +172,8 @@ export function createApp(check: Checker) {
     if (declared > MAX_BODY_BYTES) {
       return error(c, 413, "too_large", `request body over ${MAX_BODY_BYTES} bytes`);
     }
-    const text = await c.req.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
+    const text = await readCapped(c.req.raw, MAX_BODY_BYTES);
+    if (text === null) {
       return error(c, 413, "too_large", `request body over ${MAX_BODY_BYTES} bytes`);
     }
     let body: unknown;

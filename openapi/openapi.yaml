@@ -16,6 +16,11 @@ info:
 
     The API stores nothing, needs no credentials and sets no cookies. CORS is open for
     GET and POST.
+
+    Rate limits: 60 requests per minute per client IP for GET routes and 20 per minute
+    for `POST /v1/receipts/check`. Over the limit the API answers 429 with a
+    `Retry-After` header in seconds. Limits are counted per Cloudflare location and are
+    approximate. Request bodies are capped at 64 KB.
   license:
     name: MIT
     identifier: MIT
@@ -23,10 +28,10 @@ info:
     name: CloudLab Works
     url: https://cloudlabworks.dev
 servers:
-  - url: /
+  - url: https://api.cloudlabworks.dev
     description: >-
-      The host serving this document. Locally that is http://localhost:8787
-      (`wrangler dev --local`); the public hostname is not decided yet.
+      Production. Run it locally with `wrangler dev --local` in `worker/`, which serves
+      the same API on port 8787.
 security: []
 tags:
   - name: meta
@@ -58,6 +63,8 @@ paths:
                 version: 0.1.0
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /openapi.json:
     get:
       tags: [meta]
@@ -76,6 +83,8 @@ paths:
                 additionalProperties: true
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /v1/nc2/permissions:
     get:
       tags: [nc2]
@@ -110,6 +119,8 @@ paths:
                         count: 23
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /v1/nc2/permissions/{cloud}/{role}:
     get:
       tags: [nc2]
@@ -185,6 +196,8 @@ paths:
                     known: [console-sa, nodes-sa]
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
   /v1/receipts/check:
     post:
       tags: [receipts]
@@ -283,6 +296,8 @@ paths:
                       evidence: 4000
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
         "413":
           description: Claim, evidence or request body over the limits.
           headers:
@@ -335,6 +350,27 @@ components:
           example:
             error: method DELETE not allowed; use GET
             code: method_not_allowed
+    RateLimited:
+      description: >-
+        Over the per-IP rate limit for this route class (60 per minute for GET routes,
+        20 per minute for receipt checks). Retry after the `Retry-After` seconds.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+          example: 60
+        Cache-Control:
+          $ref: "#/components/headers/CacheControlNoStore"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "rate limit: 60 requests per 60 s per client IP; retry after 60 s"
+            code: rate_limited
+            limit: 60
+            period: 60
   schemas:
     Health:
       type: object
@@ -523,6 +559,7 @@ components:
             - invalid_body
             - claim_required
             - too_large
+            - rate_limited
             - internal
         known:
           type: array
@@ -531,3 +568,9 @@ components:
             type: string
         limits:
           $ref: "#/components/schemas/Limits"
+        limit:
+          type: integer
+          description: On 429, the request budget per period for this route class.
+        period:
+          type: integer
+          description: On 429, the rate-limit window in seconds.

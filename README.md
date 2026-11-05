@@ -2,6 +2,19 @@
 
 The CloudLab Works public HTTP API and its explorer app. Free, no login, nothing stored.
 
+## Live
+
+- API and explorer: <https://api.cloudlabworks.dev>
+- OpenAPI 3.1: <https://api.cloudlabworks.dev/openapi.json>
+- Health: <https://api.cloudlabworks.dev/healthz>
+
+```sh
+curl https://api.cloudlabworks.dev/v1/nc2/permissions/gcp/nodes-sa
+curl -X POST https://api.cloudlabworks.dev/v1/receipts/check \
+  -H 'Content-Type: application/json' \
+  -d '{"claim":"Deployed the API","evidence":"wrangler deploy: Uploaded clw-api; curl /healthz returned 200"}'
+```
+
 - **NC2 permissions**: the IAM permission lists that Nutanix Cloud Clusters (NC2) onboarding
   needs on AWS, Azure and Google Cloud, extracted from the public Nutanix documentation by
   [nc2-iam-preflight](https://github.com/cloudlabworks/nc2-iam-preflight). Every response
@@ -27,7 +40,7 @@ The CloudLab Works public HTTP API and its explorer app. Free, no login, nothing
 | GET | `/healthz` | `{"status":"ok",...}`, `Cache-Control: no-store` |
 | GET | `/v1/nc2/permissions` | index of clouds and roles with sources and list sizes |
 | GET | `/v1/nc2/permissions/{cloud}/{role}` | every list for that role, with its source; 404 for an unknown cloud or role |
-| POST | `/v1/receipts/check` | verdict and flags for `{"claim", "evidence"}`; 400 bad input, 413 over limits |
+| POST | `/v1/receipts/check` | verdict and flags for `{"claim", "evidence"}`; 400 bad input, 413 over limits or over 64 KB |
 | GET | `/openapi.json` | the OpenAPI document |
 | GET | `/` | the explorer app |
 
@@ -36,6 +49,17 @@ Roles: `aws/onboarding-user`, `azure/nc2-app`, `gcp/console-sa`, `gcp/nodes-sa`.
 GET responses carry `Cache-Control: public, max-age=3600` (errors and POST: `no-store`).
 CORS allows any origin for GET and POST. Errors are JSON: `{"error": "...", "code": "..."}`.
 Wrong methods on a known path get 405 with an `Allow` header.
+
+### Rate limits
+
+Per client IP: 60 requests per minute across the GET routes and 20 per minute for
+`POST /v1/receipts/check`. Over the limit the API answers 429 with `Retry-After: 60` and
+`{"code": "rate_limited"}`. The limits use the Cloudflare Workers Rate Limiting binding
+(`ratelimits` in [`worker/wrangler.jsonc`](worker/wrangler.jsonc)); counts are kept per
+Cloudflare location and are approximate, so treat them as a brake, not a quota. CORS
+preflights are not counted, and the explorer's static files are served before the Worker
+runs, so they are not counted either. Request bodies over 64 KB get 413 without being read
+in full.
 
 ### Receipt check rules
 
@@ -146,10 +170,11 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 After editing `openapi/openapi.yaml`, run `npm run build:openapi` in `worker/` to refresh
 `worker/src/generated/openapi.json`; a test fails if the two differ.
 
-## Not here yet
+## Deployment
 
-There is no deployment: no route, custom domain or Cloudflare account is configured, and
-`apis.json` assumes the hostname `api.cloudlabworks.dev`, which is not decided.
+The Worker `clw-api` serves the Custom Domain `api.cloudlabworks.dev` (`routes` with
+`custom_domain: true` in [`worker/wrangler.jsonc`](worker/wrangler.jsonc)); `workers.dev` is off.
+Deploy with `npx wrangler deploy` in `worker/` after building the Wasm and the app.
 
 ## License
 
